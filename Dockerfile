@@ -6,15 +6,15 @@ ARG GITHUB_REPO_URL=https://github.com/YilanBoy/blog.git
 # Download the Laravel App From GitHub
 ###########################################
 
-FROM alpine:latest AS app
+FROM alpine:latest AS laravel-octane-app
 
-# use global arg
+# ARG could only live in build stage, so we need to import global ARG here
 ARG GITHUB_REPO_URL
 
 WORKDIR /var/www/html
 
-RUN apk add git;
-RUN git clone --depth=1 ${GITHUB_REPO_URL} .;
+RUN apk add git
+RUN git clone --depth=1 ${GITHUB_REPO_URL} .
 
 ###########################################
 # PHP dependencies
@@ -24,7 +24,8 @@ FROM composer:latest AS vendor
 
 WORKDIR /var/www/html
 
-COPY --from=app /var/www/html .
+# Only
+COPY --from=laravel-octane-app /var/www/html .
 RUN composer install \
     --no-dev \
     --no-interaction \
@@ -34,7 +35,7 @@ RUN composer install \
     --apcu-autoloader \
     --ansi \
     --no-scripts \
-    --audit;
+    --audit
 
 ###########################################
 # front-end bundle
@@ -44,9 +45,9 @@ FROM node:latest AS assets
 
 WORKDIR /var/www/html
 
-COPY --from=app /var/www/html .
+COPY --from=laravel-octane-app /var/www/html .
 RUN npm install \
-    && npm run build;
+    && npm run build
 
 ###########################################
 # PHP runtime
@@ -69,15 +70,15 @@ WORKDIR $ROOT
 # -c: execute the following command when the shell starts
 SHELL ["/bin/bash", "-eou", "pipefail", "-c"]
 
-COPY --from=app /var/www/html .
+COPY --from=laravel-octane-app /var/www/html .
 
 # use --no-install-recommends flag to apt-get in dockerfile to save space
 # see https://github.com/jhipster/generator-jhipster/issues/12648
 RUN apt-get update \
     && apt-get upgrade -yqq \
     && apt-get install -yqq --no-install-recommends --show-progress \
-        supervisor \
-        wget
+    supervisor \
+    wget
 
 # install php extension
 RUN docker-php-ext-install pdo_mysql \
@@ -89,7 +90,7 @@ RUN docker-php-ext-install pdo_mysql \
 
 # set supercronic for schedules
 RUN wget -q "https://github.com/aptible/supercronic/releases/download/v0.2.1/supercronic-linux-amd64" \
-        -O /usr/bin/supercronic \
+    -O /usr/bin/supercronic \
     && chmod +x /usr/bin/supercronic \
     && mkdir -p /etc/supercronic \
     && echo "*/1 * * * * php ${ROOT}/artisan schedule:run --verbose --no-interaction" > /etc/supercronic/laravel
@@ -97,27 +98,29 @@ RUN wget -q "https://github.com/aptible/supercronic/releases/download/v0.2.1/sup
 HEALTHCHECK --interval=5s --timeout=3s \
     CMD supercronic -test /etc/supercronic/laravel
 
-# add octane group and user
+# create group and user "octane"
 RUN groupadd --force -g $WWWGROUP octane \
     && useradd -ms /bin/bash --no-log-init --no-user-group -g $WWWGROUP -u $WWWUSER octane
 
+# create bootstrap and storage files if they do not exist
+# gives the "octane" user read/write and execute privileges to those files
 RUN mkdir -p \
-        storage/framework/{sessions,views,cache} \
-        storage/logs \
-        bootstrap/cache \
+    storage/framework/{sessions,views,cache} \
+    storage/logs \
+    bootstrap/cache \
     && chown -R octane:octane \
-        storage \
-        bootstrap/cache \
+    storage \
+    bootstrap/cache \
     && chmod -R ug+rwx storage bootstrap/cache
 
-# copy config files into container
+# copy supervisor and php config files into container
 COPY deployment/octane/supervisord* /etc/supervisor/conf.d/
 COPY deployment/octane/php.ini /usr/local/etc/php/conf.d/octane.ini
 COPY deployment/octane/opcache.ini /usr/local/etc/php/conf.d/opcache.ini
 
 # set entrypoint to start the laravel octane app
 COPY deployment/octane/entrypoint.sh deployment/octane/entrypoint.sh
-RUN chmod +x deployment/octane/entrypoint.sh;
+RUN chmod +x deployment/octane/entrypoint.sh
 
 # copy dependencies from another stage
 COPY --from=vendor ${ROOT}/vendor vendor
