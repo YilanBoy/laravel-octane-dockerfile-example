@@ -89,8 +89,15 @@ RUN docker-php-ext-install pdo_mysql \
     && docker-php-ext-enable redis swoole
 
 # set supercronic for schedules
-RUN wget -q "https://github.com/aptible/supercronic/releases/download/v0.2.1/supercronic-linux-amd64" \
-    -O /usr/bin/supercronic \
+RUN if [ "$(uname -m)" = "x86_64" ]; then \
+    wget -q "https://github.com/aptible/supercronic/releases/download/v0.2.2/supercronic-linux-amd64" \
+    -O /usr/bin/supercronic; \
+    elif [ "$(uname -m)" = "aarch64" ]; then \
+    wget -q "https://github.com/aptible/supercronic/releases/download/v0.2.2/supercronic-linux-arm64" \
+    -O /usr/bin/supercronic; \
+    else \
+    echo "Unsupported platform" && exit 1; \
+    fi \
     && chmod +x /usr/bin/supercronic \
     && mkdir -p /etc/supercronic \
     && echo "*/1 * * * * php ${ROOT}/artisan schedule:run --verbose --no-interaction" > /etc/supercronic/laravel
